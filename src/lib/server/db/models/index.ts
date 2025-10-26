@@ -9,3 +9,6 @@ export { default as Tracking, type ITracking } from './Tracking';
 export { default as Payment, PaymentMethod, PaymentStatus, type IPayment } from './Payment';
 export { default as Notification, NotificationType, NotificationStatus, type INotification } from './Notification';
 export { default as Report, ReportType, ReportStatus, type IReport } from './Report';
+export { ActivityLog, type IActivityLog } from './ActivityLog';
+export { default as Route, type IRoute } from './Route';
+

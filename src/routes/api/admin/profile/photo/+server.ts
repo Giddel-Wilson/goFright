@@ -7,6 +7,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { connectDB } from '$lib/server/db';
 import { User } from '$lib/server/db/models';
 import { requireAuth } from '$lib/server/auth';
+import { logActivity } from '$lib/server/utils/activityLogger';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
@@ -93,6 +94,16 @@ export const POST: RequestHandler = async (event) => {
 		console.log('Updated user retrieved:', {
 			hasPhotoUrl: !!updatedUser?.photoUrl,
 			photoUrl: updatedUser?.photoUrl
+		});
+
+		// Log activity
+		await logActivity({
+			userId: authUser.userId,
+			action: 'photo_upload',
+			details: 'Updated profile picture',
+			category: 'profile',
+			metadata: { photoUrl },
+			event
 		});
 
 		return json({ 

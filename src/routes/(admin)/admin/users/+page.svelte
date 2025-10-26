@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import * as Card from '$lib/components/ui/card';
+	import { Button } from '$lib/components/ui/button';
 
 	let users = $state([]);
 	let selectedUser = $state(null);
@@ -7,12 +9,22 @@
 	let searchTerm = $state('');
 	let activeTab = $state('All');
 
+	// Notification state
+	let notification = $state<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
 	let stats = $state({
 		all: 0,
 		admin: 0,
 		officer: 0,
 		customer: 0
 	});
+
+	function showNotification(message: string, type: 'success' | 'error' | 'info' = 'info') {
+		notification = { message, type };
+		setTimeout(() => {
+			notification = null;
+		}, 5000);
+	}
 
 	const tabs = $derived([
 		{ label: 'All', count: stats.all },
@@ -86,25 +98,25 @@
 				throw new Error(data.error || 'Failed to update user');
 			}
 
-			alert('User updated successfully!');
+			showNotification('User updated successfully!', 'success');
 			await loadUsers();
 			selectedUser = null;
 		} catch (error: any) {
 			console.error('Failed to update user:', error);
-			alert(`Failed to update user: ${error.message}`);
+			showNotification(`Failed to update user: ${error.message}`, 'error');
 		}
 	}
 
 	async function resetPassword() {
 		if (!selectedUser) return;
 		if (confirm(`Reset password for ${selectedUser.name}?`)) {
-			alert('Password reset email sent!');
+			showNotification('Password reset email sent!', 'success');
 		}
 	}
 
 	async function viewActivity() {
 		if (!selectedUser) return;
-		alert(`Viewing activity for: ${selectedUser.name}\nThis will show user's login history and actions.`);
+		showNotification(`Viewing activity for: ${selectedUser.name}\nThis will show user's login history and actions.`, 'info');
 	}
 
 	async function suspendAccount() {
@@ -127,12 +139,12 @@
 					throw new Error(data.error || `Failed to ${action} account`);
 				}
 
-				alert(`Account ${action}ed successfully!`);
+				showNotification(`Account ${action}ed successfully!`, 'success');
 				await loadUsers();
 				selectedUser = null;
 			} catch (error: any) {
 				console.error(`Failed to ${action} account:`, error);
-				alert(`Failed to ${action} account: ${error.message}`);
+				showNotification(`Failed to ${action} account: ${error.message}`, 'error');
 			}
 		}
 	}
@@ -153,12 +165,12 @@
 						throw new Error(data.error || 'Failed to delete user');
 					}
 
-					alert('User deleted successfully!');
+					showNotification('User deleted successfully!', 'success');
 					await loadUsers();
 					selectedUser = null;
 				} catch (error: any) {
 					console.error('Failed to delete user:', error);
-					alert(`Failed to delete user: ${error.message}`);
+					showNotification(`Failed to delete user: ${error.message}`, 'error');
 				}
 			}
 		}
@@ -222,6 +234,69 @@
 
 <!-- Main Container - Fixed height, no scroll -->
 <div class="h-screen flex flex-col bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 overflow-hidden">
+	<!-- Notification Card - Fixed position -->
+	{#if notification}
+		<div class="fixed top-8 right-8 z-50 animate-in slide-in-from-top-2 fade-in duration-300">
+			<Card.Root class="w-96 border-l-4 {
+				notification.type === 'success' ? 'border-green-500 bg-green-50' :
+				notification.type === 'error' ? 'border-red-500 bg-red-50' :
+				'border-blue-500 bg-blue-50'
+			}">
+				<Card.Header class="pb-3">
+					<div class="flex items-start justify-between">
+						<div class="flex items-center gap-2">
+							{#if notification.type === 'success'}
+								<div class="p-1 bg-green-100 rounded-full">
+									<svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+									</svg>
+								</div>
+							{:else if notification.type === 'error'}
+								<div class="p-1 bg-red-100 rounded-full">
+									<svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+									</svg>
+								</div>
+							{:else}
+								<div class="p-1 bg-blue-100 rounded-full">
+									<svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+									</svg>
+								</div>
+							{/if}
+							<Card.Title class="text-sm font-semibold {
+								notification.type === 'success' ? 'text-green-800' :
+								notification.type === 'error' ? 'text-red-800' :
+								'text-blue-800'
+							}">
+								{notification.type === 'success' ? 'Success' :
+								 notification.type === 'error' ? 'Error' :
+								 'Info'}
+							</Card.Title>
+						</div>
+						<button
+							onclick={() => notification = null}
+							class="text-gray-400 hover:text-gray-600 transition-colors"
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+							</svg>
+						</button>
+					</div>
+				</Card.Header>
+				<Card.Content class="pt-0">
+					<p class="text-sm {
+						notification.type === 'success' ? 'text-green-700' :
+						notification.type === 'error' ? 'text-red-700' :
+						'text-blue-700'
+					} whitespace-pre-line">
+						{notification.message}
+					</p>
+				</Card.Content>
+			</Card.Root>
+		</div>
+	{/if}
+
 	<!-- Top Bar with Tabs - Fixed -->
 	<div class="bg-white mx-8 mt-8 rounded-3xl shadow-sm px-8 py-4 flex-shrink-0">
 		<div class="flex items-center justify-between">
@@ -288,18 +363,16 @@
 						role="button"
 						tabindex="0"
 					>
-						<!-- User Header -->
-						<div class="flex items-start gap-4 mb-4">
-							<!-- Avatar -->
-							{#if user.profilePicture}
-								<img src={user.profilePicture} alt={user.name} class="w-14 h-14 rounded-full object-cover" />
-							{:else}
-								<div class="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-lg" style="background: linear-gradient(135deg, {getRoleColor(user.role)}, {getRoleColor(user.role)}dd);">
-									{getInitials(user.name)}
-								</div>
-							{/if}
-
-							<!-- User Info -->
+					<!-- User Header -->
+					<div class="flex items-start gap-4 mb-4">
+						<!-- Avatar -->
+						{#if user.photoUrl}
+							<img src={user.photoUrl} alt={user.name} class="w-14 h-14 rounded-full object-cover" />
+						{:else}
+							<div class="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-lg" style="background: linear-gradient(135deg, {getRoleColor(user.role)}, {getRoleColor(user.role)}dd);">
+								{getInitials(user.name)}
+							</div>
+						{/if}							<!-- User Info -->
 							<div class="flex-1">
 								<h3 class="font-semibold text-gray-900 text-base mb-1">{user.name || 'Unnamed User'}</h3>
 								<p class="text-sm text-gray-500 mb-2">{user.email}</p>
@@ -334,8 +407,8 @@
 					<div class="flex items-start justify-between mb-6">
 						<div class="flex items-center gap-6">
 							<!-- Large Avatar -->
-							{#if selectedUser.profilePicture}
-								<img src={selectedUser.profilePicture} alt={selectedUser.name} class="w-24 h-24 rounded-2xl object-cover shadow-lg" />
+							{#if selectedUser.photoUrl}
+								<img src={selectedUser.photoUrl} alt={selectedUser.name} class="w-24 h-24 rounded-2xl object-cover shadow-lg" />
 							{:else}
 								<div class="w-24 h-24 rounded-2xl flex items-center justify-center text-white font-bold text-3xl shadow-lg" style="background: linear-gradient(135deg, {getRoleColor(selectedUser.role)}, {getRoleColor(selectedUser.role)}dd);">
 									{getInitials(selectedUser.name)}
@@ -414,6 +487,56 @@
 							</div>
 						</div>
 					</div>
+
+					<!-- Demographics -->
+					{#if selectedUser.gender || selectedUser.dateOfBirth || selectedUser.nationality || selectedUser.stateOfOrigin || selectedUser.city || selectedUser.state}
+					<div>
+						<h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+							<svg class="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+							</svg>
+							Demographics
+						</h3>
+						<div class="grid grid-cols-2 gap-4">
+							{#if selectedUser.gender}
+							<div class="bg-gray-50 rounded-2xl p-4">
+								<p class="text-xs text-gray-500 mb-1">Gender</p>
+								<p class="text-sm font-semibold text-gray-900 capitalize">{selectedUser.gender.replace(/_/g, ' ')}</p>
+							</div>
+							{/if}
+							{#if selectedUser.dateOfBirth}
+							<div class="bg-gray-50 rounded-2xl p-4">
+								<p class="text-xs text-gray-500 mb-1">Date of Birth</p>
+								<p class="text-sm font-semibold text-gray-900">{formatDate(selectedUser.dateOfBirth)}</p>
+							</div>
+							{/if}
+							{#if selectedUser.nationality}
+							<div class="bg-gray-50 rounded-2xl p-4">
+								<p class="text-xs text-gray-500 mb-1">Nationality</p>
+								<p class="text-sm font-semibold text-gray-900">{selectedUser.nationality}</p>
+							</div>
+							{/if}
+							{#if selectedUser.stateOfOrigin}
+							<div class="bg-gray-50 rounded-2xl p-4">
+								<p class="text-xs text-gray-500 mb-1">State of Origin</p>
+								<p class="text-sm font-semibold text-gray-900">{selectedUser.stateOfOrigin}</p>
+							</div>
+							{/if}
+							{#if selectedUser.city}
+							<div class="bg-gray-50 rounded-2xl p-4">
+								<p class="text-xs text-gray-500 mb-1">City</p>
+								<p class="text-sm font-semibold text-gray-900">{selectedUser.city}</p>
+							</div>
+							{/if}
+							{#if selectedUser.state}
+							<div class="bg-gray-50 rounded-2xl p-4">
+								<p class="text-xs text-gray-500 mb-1">State/Province</p>
+								<p class="text-sm font-semibold text-gray-900">{selectedUser.state}</p>
+							</div>
+							{/if}
+						</div>
+					</div>
+					{/if}
 
 					<!-- Actions -->
 					<div>

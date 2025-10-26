@@ -7,7 +7,7 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { connectDB } from '$lib/server/db';
-import { Cargo } from '$lib/server/db/models';
+import { Cargo, Route } from '$lib/server/db/models';
 import { requireAuth } from '$lib/server/auth';
 
 // City coordinates for mapping
@@ -36,14 +36,40 @@ const CITY_COORDINATES: Record<string, { lat: number; lng: number }> = {
 };
 
 /**
- * Extract city name and get coordinates
+ * Extract city/country name and get coordinates with fuzzy matching
  */
 function getCoordinatesFromAddress(address: string): { lat: number; lng: number } {
+	if (!address) return CITY_COORDINATES.Default;
+	
+	const normalizedAddress = address.toLowerCase().trim();
+	
+	// Try exact match first
 	for (const city in CITY_COORDINATES) {
-		if (address.includes(city)) {
+		if (normalizedAddress.includes(city.toLowerCase())) {
+			console.log(`📍 Matched "${address}" to ${city}`);
 			return CITY_COORDINATES[city];
 		}
 	}
+	
+	// Try country-based matching as fallback
+	const countryDefaults: Record<string, { lat: number; lng: number }> = {
+		'nigeria': { lat: 9.0820, lng: 8.6753 },
+		'china': { lat: 35.8617, lng: 104.1954 },
+		'usa': { lat: 37.0902, lng: -95.7129 },
+		'united states': { lat: 37.0902, lng: -95.7129 },
+		'uk': { lat: 55.3781, lng: -3.4360 },
+		'united kingdom': { lat: 55.3781, lng: -3.4360 }
+	};
+	
+	for (const country in countryDefaults) {
+		if (normalizedAddress.includes(country)) {
+			console.log(`📍 Matched "${address}" to ${country} (country default)`);
+			return countryDefaults[country];
+		}
+	}
+	
+	// Ultimate fallback - use origin/destination pattern to estimate
+	console.log(`⚠️  No match for "${address}", using default coordinates`);
 	return CITY_COORDINATES.Default;
 }
 
@@ -60,24 +86,47 @@ export const GET: RequestHandler = async (event) => {
 		}
 
 		await connectDB();
+		
+		// Ensure Route model is registered before populating
+		Route;
 
 		const url = new URL(event.request.url);
 		const limit = parseInt(url.searchParams.get('limit') || '50');
 		const status = url.searchParams.get('status');
+		const routeAssigned = url.searchParams.get('routeAssigned'); // 'true', 'false', or null for all
 
-		const query = status ? { status } : {};
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const query: any = {};
+		if (status) query.status = status;
+		
+		// Filter by route assignment status
+		if (routeAssigned === 'true') {
+			query.assignedRouteId = { $exists: true, $ne: null };
+		} else if (routeAssigned === 'false') {
+			query.assignedRouteId = { $exists: false };
+		}
 
 		const packages = await Cargo.find(query)
 			.populate('senderId', 'name email')
 			.populate('assignedOfficerId', 'name email')
+			.populate('assignedOfficers', 'name email location country latitude longitude')
+			.populate('assignedRouteId') // Populate route details
 			.sort({ createdAt: -1 })
 			.limit(limit)
 			.lean();
 
-		// Add coordinates to each package
+		// Add coordinates to each package - ALWAYS add coordinates
 		const packagesWithCoordinates = packages.map((pkg) => {
-			const originCoords = getCoordinatesFromAddress(pkg.origin);
-			const destinationCoords = getCoordinatesFromAddress(pkg.destination);
+			// Get coordinates, with fallbacks
+			const origin = pkg.origin || 'Unknown';
+			const destination = pkg.destination || 'Unknown';
+			
+			const originCoords = getCoordinatesFromAddress(origin);
+			const destinationCoords = getCoordinatesFromAddress(destination);
+			
+			console.log(`🗺️  Package ${pkg.trackingId}:`);
+			console.log(`   Origin: "${origin}" → [${originCoords.lat}, ${originCoords.lng}]`);
+			console.log(`   Dest: "${destination}" → [${destinationCoords.lat}, ${destinationCoords.lng}]`);
 			
 			// Calculate current location based on status
 			let currentCoords = originCoords;
@@ -92,27 +141,113 @@ export const GET: RequestHandler = async (event) => {
 				};
 			}
 
-			return {
+			// ALWAYS return coordinates
+			const packageWithCoords = {
 				...pkg,
 				coordinates: {
 					origin: originCoords,
 					destination: destinationCoords,
 					current: currentCoords
-				}
+				},
+				// Also add formatted address strings for display
+				originFormatted: origin,
+				destinationFormatted: destination
 			};
+			
+			return packageWithCoords;
 		});
+		
+		console.log(`✅ Added coordinates to ${packagesWithCoordinates.length} packages`);
 
 		// Get summary stats
 		const stats = {
 			total: await Cargo.countDocuments(),
 			inTransit: await Cargo.countDocuments({ status: 'in_transit' }),
 			delivered: await Cargo.countDocuments({ status: 'delivered' }),
-			pending: await Cargo.countDocuments({ status: { $in: ['booked', 'pending_pickup'] } })
+			pending: await Cargo.countDocuments({ status: { $in: ['booked', 'pending_pickup'] } }),
+			unassignedRoute: await Cargo.countDocuments({ assignedRouteId: { $exists: false } })
 		};
 
 		return json({ packages: packagesWithCoordinates, stats });
 	} catch (error) {
 		console.error('Get packages error:', error);
 		return json({ error: 'Failed to fetch packages' }, { status: 500 });
+	}
+};
+
+/**
+ * POST - Create new package
+ */
+export const POST: RequestHandler = async (event) => {
+	try {
+		const authUser = requireAuth(event);
+
+		// Only admins can create packages
+		if (authUser.role !== 'admin') {
+			return json({ error: 'Unauthorized' }, { status: 403 });
+		}
+
+		await connectDB();
+
+		const body = await event.request.json();
+		const {
+			weight,
+			cargoType,
+			description,
+			origin,
+			destination,
+			senderName,
+			senderPhone,
+			senderAddress,
+			receiverName,
+			receiverPhone,
+			receiverAddress,
+			status
+		} = body;
+
+		// Validate required fields
+		if (!weight || !cargoType || !description || !origin || !destination || 
+		    !senderName || !senderPhone || !senderAddress ||
+		    !receiverName || !receiverPhone || !receiverAddress) {
+			return json({ error: 'Missing required fields' }, { status: 400 });
+		}
+
+		// Create the package
+		const newPackage = await Cargo.create({
+			weight: parseFloat(weight),
+			cargoType,
+			description,
+			origin,
+			destination,
+			senderName,
+			senderPhone,
+			senderAddress,
+			receiverName,
+			receiverPhone,
+			receiverAddress,
+			status: status || 'booked',
+			senderId: authUser.userId, // Admin is creating it
+		});
+
+		// Add coordinates
+		const originCoords = getCoordinatesFromAddress(origin);
+		const destinationCoords = getCoordinatesFromAddress(destination);
+
+		const packageWithCoordinates = {
+			...newPackage.toObject(),
+			coordinates: {
+				origin: originCoords,
+				destination: destinationCoords,
+				current: originCoords
+			}
+		};
+
+		return json({ 
+			message: 'Package created successfully', 
+			package: packageWithCoordinates 
+		}, { status: 201 });
+	} catch (error) {
+		console.error('Create package error:', error);
+		return json({ error: 'Failed to create package' }, { status: 500 });
 	}
 };

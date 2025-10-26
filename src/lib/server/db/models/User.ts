@@ -26,6 +26,18 @@ export interface IUser extends Document {
 	phone?: string;
 	address?: string;
 	photoUrl?: string;
+	// Demographics
+	gender?: 'male' | 'female' | 'other' | 'prefer_not_to_say';
+	dateOfBirth?: Date;
+	nationality?: string;
+	stateOfOrigin?: string;
+	city?: string;
+	state?: string;
+	// Location (for freight officers)
+	country?: string;
+	location?: string;
+	latitude?: number;
+	longitude?: number;
 	isActive: boolean;
 	createdAt: Date;
 	updatedAt: Date;
@@ -77,6 +89,56 @@ const UserSchema = new Schema<IUser>(
 		photoUrl: {
 			type: String,
 			trim: true
+		},
+		// Demographics for analytics
+		gender: {
+			type: String,
+			enum: ['male', 'female', 'other', 'prefer_not_to_say'],
+			trim: true
+		},
+		dateOfBirth: {
+			type: Date
+		},
+		nationality: {
+			type: String,
+			trim: true,
+			maxlength: [100, 'Nationality cannot exceed 100 characters']
+		},
+		stateOfOrigin: {
+			type: String,
+			trim: true,
+			maxlength: [100, 'State of origin cannot exceed 100 characters']
+		},
+		city: {
+			type: String,
+			trim: true,
+			maxlength: [100, 'City cannot exceed 100 characters']
+		},
+		state: {
+			type: String,
+			trim: true,
+			maxlength: [100, 'State cannot exceed 100 characters']
+		},
+		// Location data for freight officers
+		country: {
+			type: String,
+			trim: true,
+			maxlength: [100, 'Country cannot exceed 100 characters']
+		},
+		location: {
+			type: String,
+			trim: true,
+			maxlength: [200, 'Location cannot exceed 200 characters']
+		},
+		latitude: {
+			type: Number,
+			min: -90,
+			max: 90
+		},
+		longitude: {
+			type: Number,
+			min: -180,
+			max: 180
 		},
 		isActive: {
 			type: Boolean,

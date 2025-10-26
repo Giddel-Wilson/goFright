@@ -15,11 +15,19 @@
 		stats: null
 	});
 
+	let activities = $state<any[]>([]);
+
 	let formData = $state({
 		name: '',
 		email: '',
 		phone: '',
 		address: '',
+		gender: '',
+		dateOfBirth: '',
+		nationality: '',
+		stateOfOrigin: '',
+		city: '',
+		state: '',
 		currentPassword: '',
 		newPassword: '',
 		confirmPassword: ''
@@ -41,6 +49,7 @@
 
 	onMount(async () => {
 		await loadProfile();
+		await loadActivities();
 	});
 
 	async function loadProfile() {
@@ -61,12 +70,75 @@
 				formData.email = profileData.user.email || '';
 				formData.phone = profileData.user.phone || '';
 				formData.address = profileData.user.address || '';
+				formData.gender = profileData.user.gender || '';
+				formData.dateOfBirth = profileData.user.dateOfBirth ? profileData.user.dateOfBirth.split('T')[0] : '';
+				formData.nationality = profileData.user.nationality || '';
+				formData.stateOfOrigin = profileData.user.stateOfOrigin || '';
+				formData.city = profileData.user.city || '';
+				formData.state = profileData.user.state || '';
 			}
 		} catch (error) {
 			console.error('Failed to load profile:', error);
 		} finally {
 			isLoading = false;
 		}
+	}
+
+	async function loadActivities() {
+		try {
+			const response = await fetch('/api/admin/profile/activities?limit=10', {
+				credentials: 'include'
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				activities = data.activities || [];
+			}
+		} catch (error) {
+			console.error('Failed to load activities:', error);
+		}
+	}
+
+	function getActivityIcon(category: string) {
+		switch (category) {
+			case 'profile':
+				return `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>`;
+			case 'shipment':
+				return `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>`;
+			case 'security':
+				return `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>`;
+			case 'report':
+				return `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>`;
+			default:
+				return `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>`;
+		}
+	}
+
+	function getActivityColor(category: string) {
+		switch (category) {
+			case 'profile':
+				return { bg: 'bg-purple-50', border: 'border-purple-100', icon: 'bg-purple-600', text: 'text-purple-600' };
+			case 'shipment':
+				return { bg: 'bg-blue-50', border: 'border-blue-100', icon: 'bg-blue-600', text: 'text-blue-600' };
+			case 'security':
+				return { bg: 'bg-red-50', border: 'border-red-100', icon: 'bg-red-600', text: 'text-red-600' };
+			case 'report':
+				return { bg: 'bg-orange-50', border: 'border-orange-100', icon: 'bg-orange-600', text: 'text-orange-600' };
+			default:
+				return { bg: 'bg-green-50', border: 'border-green-100', icon: 'bg-green-600', text: 'text-green-600' };
+		}
+	}
+
+	function formatTimeAgo(date: string) {
+		const now = new Date();
+		const activityDate = new Date(date);
+		const diffInSeconds = Math.floor((now.getTime() - activityDate.getTime()) / 1000);
+
+		if (diffInSeconds < 60) return 'Just now';
+		if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} minutes ago`;
+		if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`;
+		if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)} days ago`;
+		return activityDate.toLocaleDateString();
 	}
 
 	async function handleLogout() {
@@ -89,16 +161,23 @@
 					name: formData.name,
 					email: formData.email,
 					phone: formData.phone,
-					address: formData.address
+					address: formData.address,
+					gender: formData.gender,
+					dateOfBirth: formData.dateOfBirth,
+					nationality: formData.nationality,
+					stateOfOrigin: formData.stateOfOrigin,
+					city: formData.city,
+					state: formData.state
 				})
 			});
 
 			if (response.ok) {
 				const data = await response.json();
-				profileData.user = data.user;
 				
-				// Update auth store with new user data
-				authStore.updateUser(data.user);
+				// Reload user data from API and profile
+				await authStore.loadUser();
+				await loadProfile();
+				await loadActivities(); // Reload activities to show the update
 				
 				isEditing = false;
 				showNotification('success', 'Your profile has been updated successfully!');
@@ -204,16 +283,12 @@
 				
 				console.log('Photo upload response:', data);
 				
-				// Update profile data with the full user object from backend
-				if (data.user) {
-					profileData.user = data.user;
-				} else {
-					// Fallback to just updating photoUrl
-					profileData.user.photoUrl = data.photoUrl;
-				}
+				// Reload user data from API to get updated photoUrl
+				await authStore.loadUser();
 				
-				// Update auth store with the updated user data
-				authStore.updateUser(profileData.user);
+				// Reload profile to update UI
+				await loadProfile();
+				await loadActivities(); // Reload activities to show the upload
 				
 				showNotification('success', 'Your profile photo has been updated successfully!');
 			} else {
@@ -429,6 +504,86 @@
 						class="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-600"
 					/>
 				</div>
+
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-2">Gender</label>
+					<select 
+						bind:value={formData.gender}
+						disabled={!isEditing}
+						class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all disabled:bg-gray-50 disabled:text-gray-600"
+					>
+						<option value="">Select gender</option>
+						<option value="male">Male</option>
+						<option value="female">Female</option>
+						<option value="other">Other</option>
+						<option value="prefer_not_to_say">Prefer not to say</option>
+					</select>
+				</div>
+
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-2">Date of Birth</label>
+					<input 
+						type="date" 
+						bind:value={formData.dateOfBirth}
+						disabled={!isEditing}
+						class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all disabled:bg-gray-50 disabled:text-gray-600"
+					/>
+				</div>
+
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-2">Nationality</label>
+					<input 
+						type="text" 
+						bind:value={formData.nationality}
+						disabled={!isEditing}
+						class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all disabled:bg-gray-50 disabled:text-gray-600"
+						placeholder="e.g., Nigerian, American"
+					/>
+				</div>
+
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-2">State of Origin</label>
+					<input 
+						type="text" 
+						bind:value={formData.stateOfOrigin}
+						disabled={!isEditing}
+						class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all disabled:bg-gray-50 disabled:text-gray-600"
+						placeholder="e.g., Lagos, Abuja"
+					/>
+				</div>
+
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-2">City</label>
+					<input 
+						type="text" 
+						bind:value={formData.city}
+						disabled={!isEditing}
+						class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all disabled:bg-gray-50 disabled:text-gray-600"
+						placeholder="Enter your city"
+					/>
+				</div>
+
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-2">State/Province</label>
+					<input 
+						type="text" 
+						bind:value={formData.state}
+						disabled={!isEditing}
+						class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all disabled:bg-gray-50 disabled:text-gray-600"
+						placeholder="Enter your state"
+					/>
+				</div>
+
+				<div class="md:col-span-2">
+					<label class="block text-sm font-medium text-gray-700 mb-2">Address</label>
+					<textarea 
+						bind:value={formData.address}
+						disabled={!isEditing}
+						rows="3"
+						class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all disabled:bg-gray-50 disabled:text-gray-600"
+						placeholder="Enter your full address"
+					></textarea>
+				</div>
 			</div>
 
 			{#if isEditing}
@@ -534,57 +689,32 @@
 			</div>
 
 			<div class="space-y-3">
-				<div class="flex items-start gap-3 p-4 bg-blue-50 rounded-2xl border border-blue-100">
-					<div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center flex-shrink-0">
-						<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-						</svg>
+				{#if activities.length > 0}
+					{#each activities as activity}
+						{@const colors = getActivityColor(activity.category)}
+						<div class="flex items-start gap-3 p-4 {colors.bg} rounded-2xl border {colors.border}">
+							<div class="w-10 h-10 {colors.icon} rounded-xl flex items-center justify-center flex-shrink-0">
+								<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									{@html getActivityIcon(activity.category)}
+								</svg>
+							</div>
+							<div class="flex-1">
+								<p class="font-medium text-gray-900">{activity.action.replace(/_/g, ' ')}</p>
+								<p class="text-sm text-gray-600">{activity.details}</p>
+								<p class="text-xs text-gray-500 mt-1">{formatTimeAgo(activity.createdAt)}</p>
+							</div>
+						</div>
+					{/each}
+				{:else}
+					<div class="flex items-center justify-center p-8 text-gray-500">
+						<div class="text-center">
+							<svg class="w-12 h-12 mx-auto mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+							</svg>
+							<p>No recent activities</p>
+						</div>
 					</div>
-					<div class="flex-1">
-						<p class="font-medium text-gray-900">Created new shipment</p>
-						<p class="text-sm text-gray-600">Shipment #SH-2024-1234 created for client ABC Corp</p>
-						<p class="text-xs text-gray-500 mt-1">2 hours ago</p>
-					</div>
-				</div>
-
-				<div class="flex items-start gap-3 p-4 bg-purple-50 rounded-2xl border border-purple-100">
-					<div class="w-10 h-10 bg-purple-600 rounded-xl flex items-center justify-center flex-shrink-0">
-						<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-						</svg>
-					</div>
-					<div class="flex-1">
-						<p class="font-medium text-gray-900">Updated user profile</p>
-						<p class="text-sm text-gray-600">Changed contact information and preferences</p>
-						<p class="text-xs text-gray-500 mt-1">5 hours ago</p>
-					</div>
-				</div>
-
-				<div class="flex items-start gap-3 p-4 bg-green-50 rounded-2xl border border-green-100">
-					<div class="w-10 h-10 bg-green-600 rounded-xl flex items-center justify-center flex-shrink-0">
-						<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-						</svg>
-					</div>
-					<div class="flex-1">
-						<p class="font-medium text-gray-900">Completed delivery</p>
-						<p class="text-sm text-gray-600">Shipment #SH-2024-1180 delivered successfully</p>
-						<p class="text-xs text-gray-500 mt-1">1 day ago</p>
-					</div>
-				</div>
-
-				<div class="flex items-start gap-3 p-4 bg-orange-50 rounded-2xl border border-orange-100">
-					<div class="w-10 h-10 bg-orange-600 rounded-xl flex items-center justify-center flex-shrink-0">
-						<svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-						</svg>
-					</div>
-					<div class="flex-1">
-						<p class="font-medium text-gray-900">Generated report</p>
-						<p class="text-sm text-gray-600">Monthly analytics report for October 2025</p>
-						<p class="text-xs text-gray-500 mt-1">2 days ago</p>
-					</div>
-				</div>
+				{/if}
 			</div>
 
 			<button class="mt-4 w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors text-sm font-medium">

@@ -14,7 +14,10 @@
 		"lint": "prettier --check . && eslint .",
 		"test:unit": "vitest",
 		"test": "npm run test:unit -- --run",
-		"db:init": "node scripts/init-db.js"
+		"db:init": "node scripts/init-db.js",
+		"db:users": "bun scripts/check-db.ts",
+		"db:check": "bun scripts/check-db.ts",
+		"db:clean": "bun scripts/clean-users.ts"
 	},
 	"devDependencies": {
 		"@eslint/compat": "^1.4.0",
@@ -29,6 +32,7 @@
 		"@tailwindcss/vite": "^4.1.13",
 		"@types/bcryptjs": "^2.4.6",
 		"@types/jsonwebtoken": "^9.0.10",
+		"@types/leaflet": "^1.9.21",
 		"@types/node": "^22",
 		"@types/node-cron": "^3.0.11",
 		"@types/nodemailer": "^7.0.2",
@@ -60,6 +64,7 @@
 		"bcryptjs": "^3.0.2",
 		"dotenv": "^17.2.3",
 		"jsonwebtoken": "^9.0.2",
+		"leaflet": "^1.9.4",
 		"mongoose": "^8.19.1",
 		"nanoid": "^5.1.6",
 		"node-cron": "^4.2.1",

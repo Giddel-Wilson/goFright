@@ -61,6 +61,8 @@ export interface ICargo extends Document {
 	estimatedDelivery?: Date;
 	actualDelivery?: Date;
 	assignedOfficerId?: mongoose.Types.ObjectId;
+	assignedOfficers?: mongoose.Types.ObjectId[]; // Multiple freight officers can be assigned
+	assignedRouteId?: mongoose.Types.ObjectId; // Route assigned by admin
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -162,6 +164,14 @@ const CargoSchema = new Schema<ICargo>(
 		assignedOfficerId: {
 			type: Schema.Types.ObjectId,
 			ref: 'User'
+		},
+		assignedOfficers: [{
+			type: Schema.Types.ObjectId,
+			ref: 'User'
+		}],
+		assignedRouteId: {
+			type: Schema.Types.ObjectId,
+			ref: 'Route'
 		}
 	},
 	{

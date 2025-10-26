@@ -14,6 +14,13 @@ export interface User {
 	phone?: string;
 	address?: string;
 	photoUrl?: string;
+	// Demographics
+	gender?: 'male' | 'female' | 'other' | 'prefer_not_to_say';
+	dateOfBirth?: string;
+	nationality?: string;
+	stateOfOrigin?: string;
+	city?: string;
+	state?: string;
 	isActive: boolean;
 	createdAt: string;
 }
@@ -86,6 +93,7 @@ function createAuthStore() {
 			name: string;
 			email: string;
 			password: string;
+			role: 'admin' | 'freight_officer' | 'customer';
 			phone?: string;
 			address?: string;
 		}) => {

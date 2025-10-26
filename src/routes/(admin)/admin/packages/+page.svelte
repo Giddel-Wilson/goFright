@@ -1,28 +1,33 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import GoogleMap from '$lib/components/GoogleMap.svelte';
+	import LeafletMap from '$lib/components/LeafletMap.svelte';
 
 	let packages = $state([]);
 	let selectedPackage = $state(null);
 	let isLoading = $state(true);
 	let searchTerm = $state('');
 	let activeTab = $state('All');
-	let showMap = $state(false);
+	let showMap = $state(true);
+	let showAddPackageModal = $state(false);
 
 	let stats = $state({
 		all: 0,
-		prepared: 0,
+		pending_pickup: 0,
+		booked: 0,
 		ready: 0,
 		delivered: 0,
-		inTransit: 0
+		inTransit: 0,
+		cancelled: 0
 	});
 
 	const tabs = $derived([
 		{ label: 'All', count: stats.all },
-		{ label: 'Prepared', count: stats.prepared },
+		{ label: 'Pending', count: stats.pending_pickup },
+		{ label: 'booked', count: stats.booked },
 		{ label: 'Ready for shipping', count: stats.ready },
+		{ label: 'In transit', count: stats.inTransit },
 		{ label: 'Delivered', count: stats.delivered },
-		{ label: 'In transit', count: stats.inTransit }
+		{ label: 'Cancelled', count: stats.cancelled }
 	]);
 
 	onMount(async () => {
@@ -45,15 +50,51 @@
 
 			// Calculate stats - use normalized status
 			stats.all = packages.length;
-			stats.prepared = packages.filter(p => p.status === 'prepared').length;
+			stats.booked = packages.filter(p => p.status === 'booked').length;
+			stats.pending_pickup = packages.filter(p => p.status === 'pending_pickup').length;
 			stats.ready = packages.filter(p => p.status === 'ready_for_shipping').length;
-			stats.delivered = packages.filter(p => p.status === 'delivered').length;
 			stats.inTransit = packages.filter(p => p.status === 'in_transit' || p.status === 'out_for_delivery').length;
+			stats.delivered = packages.filter(p => p.status === 'delivered').length;
+			stats.cancelled = packages.filter(p => p.status === 'cancelled').length;
 
 			// Select first package by default
 			if (packages.length > 0) {
 				selectedPackage = packages[0];
 			}
+
+			// Try to load available officers for assignment (optional endpoint)
+			try {
+				const offRes = await fetch('/api/admin/officers', { credentials: 'include' });
+					if (offRes.ok) {
+						const offData = await offRes.json();
+						availableOfficers = offData.officers || offData || [];
+					} else {
+						availableOfficers = [];
+					}
+			} catch (err) {
+				console.warn('Failed to load officers list (this may be optional):', err);
+				availableOfficers = [];
+			}
+
+			// Fallback: try users endpoint filtered by role if officers endpoint returned nothing
+			if (!availableOfficers || availableOfficers.length === 0) {
+				try {
+					const ures = await fetch('/api/admin/users?role=freight_officer', { credentials: 'include' });
+					if (ures.ok) {
+						const udata = await ures.json();
+						availableOfficers = udata.users || udata || [];
+					}
+				} catch (e) {
+					// ignore
+				}
+			}
+
+			// Client-side filter: only keep freight officers (some endpoints may return all users)
+			function isFreightRole(r: any) {
+				if (!r) return false;
+				return String(r).toLowerCase().replace(/[-_ ]/g, '') === 'freightofficer' || String(r).toLowerCase() === 'freight_officer' || String(r).toLowerCase() === 'freight-officer';
+			}
+			availableOfficers = (availableOfficers || []).filter((o: any) => isFreightRole(o.role || o.user?.role));
 		} catch (error) {
 			console.error('Failed to load packages:', error);
 		} finally {
@@ -63,12 +104,13 @@
 
 	function getStatusColor(status: string): string {
 		const colors: Record<string, string> = {
-			'prepared': '#F59E0B',
+			'booked': '#F59E0B',
 			'ready_for_shipping': '#3B82F6',
 			'in_transit': '#8B5CF6',
 			'out_for_delivery': '#EC4899',
 			'delivered': '#22C55E',
-			'pending': '#EF4444'
+			'pending_pickup': '#EF4444',
+			'cancelled': '#EF4444'
 		};
 		return colors[status] || '#6B7280';
 	}
@@ -81,18 +123,70 @@
 		return name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'DR';
 	}
 
+	// Helper to safely read officer fields whether the API returns an officer
+	// as { name, phone, email, role } or wrapped like { user: { name, phone, email }, role }
+	function getOfficerProp(officer: any, prop: string) {
+		if (!officer) return 'N/A';
+		return officer[prop] ?? officer.user?.[prop] ?? 'N/A';
+	}
+
+	// Fetch a single user's full record (phone/email may be available here)
+	async function loadOfficerDetails(id: string) {
+		if (!id) {
+			selectedOfficerFull = null;
+			return;
+		}
+		try {
+			console.debug('[officer] loading details for id', id);
+			const res = await fetch(`/api/admin/users/${id}`, { credentials: 'include' });
+			console.debug('[officer] details response status', res.status);
+			if (!res.ok) {
+				// attempt fallback: try query by id on users list endpoint
+				try {
+					const listRes = await fetch(`/api/admin/users?userId=${id}`, { credentials: 'include' });
+					if (listRes.ok) {
+						const listData = await listRes.json();
+						// try to find user in returned users list
+						const found = (listData.users || []).find((u: any) => String(u._id) === String(id) || String(u.id) === String(id));
+						if (found) {
+							selectedOfficerFull = found;
+							return;
+						}
+					}
+				} catch (e) {
+					console.debug('[officer] fallback list fetch failed', e);
+				}
+				selectedOfficerFull = null;
+				return;
+			}
+			const data = await res.json();
+			console.debug('[officer] details payload', data);
+			selectedOfficerFull = data.user || data;
+		} catch (err) {
+			console.warn('Failed to load officer details', err);
+			selectedOfficerFull = null;
+		}
+	}
+
+	// Debug toggle to show fetched officer payload in modal (turn off in prod)
+	let showOfficerDebug = $state(true);
+
 	let filteredPackages = $derived(() => {
 		let filtered = packages;
 
 		// Filter by active tab
-		if (activeTab === 'Prepared') {
-			filtered = filtered.filter(p => p.status === 'prepared');
+		if (activeTab === 'booked') {
+			filtered = filtered.filter(p => p.status === 'booked');
+		} else if (activeTab === 'Pending') {
+			filtered = filtered.filter(p => p.status === 'pending_pickup');
 		} else if (activeTab === 'Ready for shipping') {
 			filtered = filtered.filter(p => p.status === 'ready_for_shipping');
 		} else if (activeTab === 'Delivered') {
 			filtered = filtered.filter(p => p.status === 'delivered');
 		} else if (activeTab === 'In transit') {
 			filtered = filtered.filter(p => p.status === 'in_transit' || p.status === 'out_for_delivery');
+		} else if (activeTab === 'Cancelled') {
+			filtered = filtered.filter(p => p.status === 'cancelled');
 		}
 
 		// Filter by search term
@@ -111,8 +205,264 @@
 
 	// Packages with coordinates for map
 	let mappablePackages = $derived(() => {
-		return packages.filter(p => p.coordinates);
+		const mapped = packages.filter(p => p.coordinates);
+		console.log(`🗺️  Mappable packages: ${mapped.length}/${packages.length}`);
+		if (mapped.length === 0 && packages.length > 0) {
+			console.warn('⚠️  No packages have coordinates!', packages[0]);
+		}
+		return mapped;
 	});
+
+	// Form data for new package
+	let newPackageForm = $state({
+		weight: '',
+		cargoType: '',
+		description: '',
+		origin: '',
+		destination: '',
+		senderName: '',
+		senderPhone: '',
+		senderAddress: '',
+		receiverName: '',
+		receiverPhone: '',
+		receiverAddress: '',
+		status: 'booked'
+	});
+
+	let isSubmitting = $state(false);
+
+	// Status editing
+	let isEditingStatus = $state(false);
+	let newStatus = $state('');
+	let isUpdatingStatus = $state(false);
+	let isAssigningOfficers = $state(false);
+	// Officer assignment state (bindable)
+	let selectedOfficerId = $state('');
+	let availableOfficers = $state([]);
+	let selectedOfficer = $derived(() =>
+		(availableOfficers || []).find((o: any) => String(o._id) === String(selectedOfficerId)) ?? null
+	);
+
+	// Full officer details (fetched on demand). Some list endpoints may omit contact fields.
+	let selectedOfficerFull = $state(null);
+
+	// Prefer the full fetched officer when available, otherwise fall back to the list item
+	let currentOfficer = $derived(() => selectedOfficerFull || selectedOfficer);
+
+	// Displayed officer: prefer selectedOfficer, otherwise show the first available officer
+	let displayedOfficer = $derived(() => selectedOfficer || ((availableOfficers || [])[0] ?? null));
+
+	// Options / Edit modal state
+	let showOptionsModal = $state(false);
+	let editForm = $state({ description: '', weight: '', status: '' });
+	let isSavingEdit = $state(false);
+
+	function openOptionsModal() {
+		if (!selectedPackage) return;
+		// Initialize form from selectedPackage
+		editForm = {
+			description: selectedPackage.description || '',
+			weight: selectedPackage.weight || '',
+			status: selectedPackage.status || 'booked'
+		};
+		// If we have available officers, pre-select the first one so contact info is visible
+		if ((availableOfficers || []).length > 0) {
+			const firstId = String(availableOfficers[0]._id ?? availableOfficers[0].user?._id ?? availableOfficers[0].id ?? availableOfficers[0].user?.id);
+			selectedOfficerId = firstId;
+			// fetch full details for that officer immediately
+			loadOfficerDetails(firstId);
+		} else {
+			// ensure selectedOfficerId cleared
+			selectedOfficerId = '';
+			selectedOfficerFull = null;
+		}
+		showOptionsModal = true;
+	}
+
+	function closeOptionsModal() {
+		showOptionsModal = false;
+	}
+
+	async function saveEditForm() {
+		if (!selectedPackage) return;
+		try {
+			isSavingEdit = true;
+			const res = await fetch(`/api/admin/packages/${selectedPackage._id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				credentials: 'include',
+				body: JSON.stringify({ description: editForm.description, weight: editForm.weight, status: editForm.status })
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error || 'Failed to save package');
+			// update local list
+			const idx = packages.findIndex(p => p._id === data.package._id);
+			if (idx !== -1) packages[idx] = data.package;
+			selectedPackage = data.package;
+			alert('Package updated');
+			closeOptionsModal();
+		} catch (err: any) {
+			console.error('saveEditForm error', err);
+			alert(`Failed to save package: ${err.message || err}`);
+		}
+		finally {
+			isSavingEdit = false;
+		}
+	}
+
+	function openAddPackageModal() {
+		showAddPackageModal = true;
+		// Reset form
+		newPackageForm = {
+			weight: '',
+			cargoType: '',
+			description: '',
+			origin: '',
+			destination: '',
+			senderName: '',
+			senderPhone: '',
+			senderAddress: '',
+			receiverName: '',
+			receiverPhone: '',
+			receiverAddress: '',
+			status: 'booked'
+		};
+	}
+
+	function closeAddPackageModal() {
+		showAddPackageModal = false;
+	}
+
+	async function handleCreatePackage(event: Event) {
+		event.preventDefault();
+		
+		isSubmitting = true;
+		try {
+			const response = await fetch('/api/admin/packages', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				credentials: 'include',
+				body: JSON.stringify(newPackageForm)
+			});
+
+			if (!response.ok) {
+				const error = await response.json();
+				throw new Error(error.error || 'Failed to create package');
+			}
+
+			const data = await response.json();
+			
+			// Reload packages to show the new one
+			await loadPackages();
+			
+			// Close modal
+			closeAddPackageModal();
+			
+			// Select the new package
+			selectedPackage = data.package;
+			
+			alert('Package created successfully!');
+		} catch (error: any) {
+			console.error('Failed to create package:', error);
+			alert(`Failed to create package: ${error.message}`);
+		} finally {
+			isSubmitting = false;
+		}
+	}
+
+	function startEditStatus() {
+		if (selectedPackage) {
+			newStatus = selectedPackage.status;
+			isEditingStatus = true;
+		}
+	}
+
+	function cancelEditStatus() {
+		isEditingStatus = false;
+		newStatus = '';
+	}
+
+	async function saveStatus() {
+		if (!selectedPackage || !newStatus) return;
+
+		isUpdatingStatus = true;
+		try {
+			const response = await fetch(`/api/admin/packages/${selectedPackage._id}`, {
+				method: 'PATCH',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				credentials: 'include',
+				body: JSON.stringify({ status: newStatus })
+			});
+
+			if (!response.ok) {
+				const error = await response.json();
+				throw new Error(error.error || 'Failed to update status');
+			}
+
+			const data = await response.json();
+			
+			// Update the package in the list
+			const pkgIndex = packages.findIndex(p => p._id === selectedPackage._id);
+			if (pkgIndex !== -1) {
+				packages[pkgIndex] = { ...data.package };
+				selectedPackage = data.package;
+			}
+
+			// Recalculate stats
+			stats.all = packages.length;
+			stats.booked = packages.filter(p => p.status === 'booked').length;
+			stats.pending_pickup = packages.filter(p => p.status === 'pending_pickup').length;
+			stats.ready = packages.filter(p => p.status === 'ready_for_shipping').length;
+			stats.delivered = packages.filter(p => p.status === 'delivered').length;
+			stats.inTransit = packages.filter(p => p.status === 'in_transit' || p.status === 'out_for_delivery').length;
+			stats.cancelled = packages.filter(p => p.status === 'cancelled').length;
+
+			isEditingStatus = false;
+			alert('Status updated successfully!');
+		} catch (error: any) {
+			console.error('Failed to update status:', error);
+			alert(`Failed to update status: ${error.message}`);
+		} finally {
+			isUpdatingStatus = false;
+		}
+	}
+
+	// Assign a specific officer (from UI select)
+	async function assignOfficer() {
+			if (!selectedPackage || !selectedOfficerId) return;
+		// Use the displayedOfficer (selected or first available)
+		const role = displayedOfficer?.role || displayedOfficer?.user?.role || '';
+			const normRole = String(role).toLowerCase().replace(/[-_ ]/g, '');
+			if (normRole !== 'freightofficer') {
+				alert('Please select a freight officer.');
+				return;
+			}
+		try {
+			const res = await fetch(`/api/admin/packages/${selectedPackage._id}/assign-officers`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				credentials: 'include',
+				body: JSON.stringify({ officerId: selectedOfficerId })
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error || 'Failed to assign officer');
+			if (data.package) {
+				const idx = packages.findIndex(p => p._id === data.package._id);
+				if (idx !== -1) packages[idx] = data.package;
+				selectedPackage = data.package;
+			}
+			const officerName = getOfficerProp(displayedOfficer, 'name');
+			const officerPhone = getOfficerProp(displayedOfficer, 'phone');
+			alert(`Assigned officer: ${officerName}\nContact: ${officerPhone}`);
+		} catch (err: any) {
+			console.error('assignOfficer error', err);
+			alert(`Failed to assign officer: ${err.message || err}`);
+		}
+	}
 </script>
 
 <svelte:head>
@@ -184,7 +534,10 @@
 		<!-- Left Panel - Package List - ONLY THIS SCROLLS -->
 		<div class="w-[380px] flex-shrink-0 overflow-y-auto pr-2 space-y-4">
 			<!-- Add New Package Card -->
-			<div class="bg-white rounded-3xl p-8 text-center border-2 border-dashed border-gray-200 hover:border-blue-400 transition-all cursor-pointer flex-shrink-0">
+			<div 
+				onclick={openAddPackageModal}
+				class="bg-white rounded-3xl p-8 text-center border-2 border-dashed border-gray-200 hover:border-blue-400 transition-all cursor-pointer flex-shrink-0"
+			>
 				<div class="w-20 h-20 bg-gradient-to-br from-blue-100 to-purple-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
 					<svg class="w-10 h-10 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
@@ -309,22 +662,63 @@
 						<div>
 							<h2 class="text-xl font-bold text-gray-900">{selectedPackage.trackingId || 'N/A'}</h2>
 						</div>
-						<button class="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors">
-							<svg class="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
-								<path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z"/>
+						<div class="flex items-center gap-2">
+							<button onclick={openOptionsModal} class="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors" title="Options">
+								<svg class="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+									<path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z"/>
+								</svg>
+							</button>
+						</div>
+					</div>
+					
+					<!-- Status Display/Edit -->
+					{#if isEditingStatus}
+						<div class="flex items-center gap-2">
+							<select 
+								bind:value={newStatus}
+								class="px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+							>
+								<option value="pending_pickup">Pending</option>
+								<option value="booked">Booked</option>
+								<option value="ready">Ready for shipping</option>
+								<option value="in_transit">In Transit</option>
+								<option value="delivered">Delivered</option>
+								<option value="cancelled">Cancelled</option>
+							</select>
+							<button 
+								onclick={saveStatus}
+								disabled={isUpdatingStatus}
+								class="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+							>
+								{isUpdatingStatus ? 'Saving...' : 'Save'}
+							</button>
+							<button 
+								onclick={cancelEditStatus}
+								disabled={isUpdatingStatus}
+								class="px-3 py-1.5 bg-gray-200 text-gray-700 text-xs rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50"
+							>
+								Cancel
+							</button>
+						</div>
+					{:else}
+						<button 
+							onclick={startEditStatus}
+							class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium hover:opacity-80 transition-opacity" 
+							style="background-color: {getStatusColor(selectedPackage.status)}20; color: {getStatusColor(selectedPackage.status)}"
+						>
+							<span class="w-2 h-2 rounded-full" style="background-color: {getStatusColor(selectedPackage.status)}"></span>
+							{formatStatus(selectedPackage.status)}
+							<svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
 							</svg>
 						</button>
-					</div>
-					<div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium" style="background-color: {getStatusColor(selectedPackage.status)}20; color: {getStatusColor(selectedPackage.status)}">
-						<span class="w-2 h-2 rounded-full" style="background-color: {getStatusColor(selectedPackage.status)}"></span>
-						{formatStatus(selectedPackage.status)}
-					</div>
+					{/if}
 				</div>
-
+				
 				<!-- Map - Flex grows to fill space -->
 				<div class="flex-1 relative bg-gray-100">
 					{#if showMap && mappablePackages().length > 0}
-						<GoogleMap 
+						<LeafletMap 
 							packages={mappablePackages()} 
 							height="100%"
 							zoom={4}
@@ -337,6 +731,9 @@
 								</svg>
 								<p class="text-gray-500 font-medium">No location data available</p>
 								<p class="text-sm text-gray-400 mt-1">Packages without GPS coordinates cannot be displayed on the map</p>
+								<pre style="background:#222;color:#fff;padding:1em;overflow:auto;max-width:600px;max-height:200px;">
+									{JSON.stringify(packages, null, 2)}
+								</pre>
 							</div>
 						</div>
 					{:else}
@@ -352,7 +749,7 @@
 					{/if}
 				</div>
 
-				<!-- Details Footer - Fixed at bottom -->
+								<!-- Details Footer - Fixed at bottom -->
 				<div class="p-6 space-y-3 flex-shrink-0">
 					<div class="bg-gray-50 rounded-2xl p-4">
 						<p class="text-xs text-gray-500 mb-1">Origin → Destination</p>
@@ -389,6 +786,26 @@
 						<p class="text-xs text-gray-500 mb-1">Description</p>
 						<p class="text-sm font-semibold text-gray-900">{selectedPackage.description || 'No description provided'}</p>
 					</div>
+
+					<!-- Assigned Freight Officers -->
+					{#if selectedPackage.assignedOfficers && selectedPackage.assignedOfficers.length > 0}
+						<div class="bg-purple-50 rounded-2xl p-4">
+							<p class="text-xs text-purple-600 font-semibold mb-2">Assigned Freight Officers ({selectedPackage.assignedOfficers.length})</p>
+							<div class="space-y-2">
+								{#each selectedPackage.assignedOfficers as officer}
+									<div class="flex items-center gap-3 bg-white rounded-lg p-2">
+										<div class="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center text-white font-bold text-xs">
+											{officer.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'FO'}
+										</div>
+										<div class="flex-1">
+											<p class="text-sm font-semibold text-gray-900">{officer.name}</p>
+											<p class="text-xs text-gray-500">{officer.location || officer.country || 'N/A'}</p>
+										</div>
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
 				</div>
 			{:else}
 				<div class="h-full flex items-center justify-center">
@@ -404,6 +821,297 @@
 		</div>
 	</div>
 </div>
+
+<!-- Add Package Modal -->
+{#if showAddPackageModal}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick={closeAddPackageModal}>
+		<div class="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onclick={(e) => e.stopPropagation()}>
+			<!-- Modal Header -->
+			<div class="sticky top-0 bg-white border-b border-gray-200 px-8 py-6 rounded-t-3xl">
+				<div class="flex items-center justify-between">
+					<div>
+						<h2 class="text-2xl font-bold text-gray-900">Add New Package</h2>
+						<p class="text-gray-600 text-sm mt-1">Fill in the package details below</p>
+					</div>
+					<button 
+						onclick={closeAddPackageModal}
+						class="w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
+						aria-label="Close modal"
+					>
+						<svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+						</svg>
+					</button>
+				</div>
+			</div>
+
+			<!-- Modal Body -->
+			<form onsubmit={handleCreatePackage} class="p-8 space-y-6">
+				<!-- Package Information -->
+				<div>
+					<h3 class="text-lg font-semibold text-gray-900 mb-4">Package Information</h3>
+					<div class="grid grid-cols-2 gap-4">
+						<div class="col-span-2">
+							<label class="block text-sm font-medium text-gray-700 mb-2">Tracking ID</label>
+							<input
+								type="text"
+								placeholder="Auto-generated"
+								class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50"
+								disabled
+							/>
+						</div>
+						
+						<div>
+							<label class="block text-sm font-medium text-gray-700 mb-2">Weight (kg) *</label>
+							<input
+								type="number"
+								step="0.01"
+								bind:value={newPackageForm.weight}
+								placeholder="e.g., 15.5"
+								class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								required
+							/>
+						</div>
+
+						<div>
+							<label class="block text-sm font-medium text-gray-700 mb-2">Cargo Type *</label>
+							<select 
+								bind:value={newPackageForm.cargoType}
+								class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
+								required
+							>
+								<option value="">Select cargo type</option>
+								<option value="general">General Cargo</option>
+								<option value="fragile">Fragile</option>
+								<option value="perishable">Perishable</option>
+								<option value="hazardous">Hazardous</option>
+								<option value="electronics">Electronics</option>
+								<option value="documents">Documents</option>
+								<option value="liquid">Liquid</option>
+								<option value="other">Other</option>
+							</select>
+						</div>
+
+						<div class="col-span-2">
+							<label class="block text-sm font-medium text-gray-700 mb-2">Description *</label>
+							<textarea
+								rows="3"
+								bind:value={newPackageForm.description}
+								placeholder="Brief description of package contents..."
+								class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+								required
+							></textarea>
+						</div>
+					</div>
+				</div>
+
+				<!-- Location Information -->
+				<div>
+					<h3 class="text-lg font-semibold text-gray-900 mb-4">Location Details</h3>
+					<div class="grid grid-cols-2 gap-4">
+						<div>
+							<label class="block text-sm font-medium text-gray-700 mb-2">Origin *</label>
+							<input
+								type="text"
+								bind:value={newPackageForm.origin}
+								placeholder="e.g., New York, NY"
+								class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								required
+							/>
+						</div>
+
+						<div>
+							<label class="block text-sm font-medium text-gray-700 mb-2">Destination *</label>
+							<input
+								type="text"
+								bind:value={newPackageForm.destination}
+								placeholder="e.g., Los Angeles, CA"
+								class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								required
+							/>
+						</div>
+					</div>
+				</div>
+
+				<!-- Sender Information -->
+				<div>
+					<h3 class="text-lg font-semibold text-gray-900 mb-4">Sender Details</h3>
+					<div class="grid grid-cols-2 gap-4">
+						<div>
+							<label class="block text-sm font-medium text-gray-700 mb-2">Sender Name *</label>
+							<input
+								type="text"
+								bind:value={newPackageForm.senderName}
+								placeholder="Full name"
+								class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								required
+							/>
+						</div>
+
+						<div>
+							<label class="block text-sm font-medium text-gray-700 mb-2">Sender Phone *</label>
+							<input
+								type="tel"
+								bind:value={newPackageForm.senderPhone}
+								placeholder="+1 (555) 000-0000"
+								class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								required
+							/>
+						</div>
+
+						<div class="col-span-2">
+							<label class="block text-sm font-medium text-gray-700 mb-2">Sender Address *</label>
+							<input
+								type="text"
+								bind:value={newPackageForm.senderAddress}
+								placeholder="Full address"
+								class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								required
+							/>
+						</div>
+					</div>
+				</div>
+
+				<!-- Receiver Information -->
+				<div>
+					<h3 class="text-lg font-semibold text-gray-900 mb-4">Receiver Details</h3>
+					<div class="grid grid-cols-2 gap-4">
+						<div>
+							<label class="block text-sm font-medium text-gray-700 mb-2">Receiver Name *</label>
+							<input
+								type="text"
+								bind:value={newPackageForm.receiverName}
+								placeholder="Full name"
+								class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								required
+							/>
+						</div>
+
+						<div>
+							<label class="block text-sm font-medium text-gray-700 mb-2">Receiver Phone *</label>
+							<input
+								type="tel"
+								bind:value={newPackageForm.receiverPhone}
+								placeholder="+1 (555) 000-0000"
+								class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								required
+							/>
+						</div>
+
+						<div class="col-span-2">
+							<label class="block text-sm font-medium text-gray-700 mb-2">Receiver Address *</label>
+							<input
+								type="text"
+								bind:value={newPackageForm.receiverAddress}
+								placeholder="Full address"
+								class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+								required
+							/>
+						</div>
+					</div>
+				</div>
+
+				<!-- Status -->
+				<div>
+					<label class="block text-sm font-medium text-gray-700 mb-2">Initial Status *</label>
+					<select 
+						bind:value={newPackageForm.status}
+						class="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
+						required
+					>
+						<option value="booked">Booked</option>
+						<option value="pending_pickup">Pending</option>
+						<option value="in_transit">In Transit</option>
+						<option value="out_for_delivery">Out for Delivery</option>
+						<option value="delivered">Delivered</option>
+						<option value="cancelled">Cancelled</option>
+					</select>
+				</div>
+
+				<!-- Action Buttons -->
+				<div class="flex gap-3 pt-4 border-t border-gray-200">
+					<button
+						type="button"
+						onclick={closeAddPackageModal}
+						disabled={isSubmitting}
+						class="flex-1 px-6 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium disabled:opacity-50"
+					>
+						Cancel
+					</button>
+					<button
+						type="submit"
+						disabled={isSubmitting}
+						class="flex-1 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-medium shadow-lg shadow-blue-600/30 disabled:opacity-50"
+					>
+						{isSubmitting ? 'Creating...' : 'Create Package'}
+					</button>
+				</div>
+			</form>
+		</div>
+	</div>
+{/if}
+
+{#if showOptionsModal}
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[2000] p-4" onclick={closeOptionsModal}>
+		<div class="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onclick={(e) => e.stopPropagation()} style="z-index:2001; position:relative;">
+			<div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 rounded-t-3xl">
+				<div class="flex items-center justify-between">
+					<div>
+						<h2 class="text-xl font-bold">Package Options</h2>
+						<p class="text-sm text-gray-600">Edit package details or assign a handler</p>
+					</div>
+					<button onclick={closeOptionsModal} class="w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center">
+						✕
+					</button>
+				</div>
+			</div>
+
+			<div class="p-6 space-y-6">
+				<!-- Assign Handler -->
+				<div>
+					<h3 class="text-lg font-semibold mb-2">Assign Handler / Freight Officer</h3>
+					<div class="flex gap-3 items-center">
+						<select bind:value={selectedOfficerId} class="flex-1 px-3 py-2 border border-gray-300 rounded-lg" onchange={(e) => { const v = (e.target as HTMLSelectElement).value; selectedOfficerId = v; loadOfficerDetails(v); }}>
+							<option value="">Select officer</option>
+							{#each availableOfficers as officer}
+								<option value={String(officer._id ?? officer.user?._id ?? officer.id ?? officer.user?.id)}>{getOfficerProp(officer, 'name')}</option>
+							{/each}
+						</select>
+					</div>
+					{#if displayedOfficer}
+						<div class="mt-2 text-sm text-gray-600">
+							<div><strong>Name:</strong> {getOfficerProp(selectedOfficerFull, 'name')}</div>
+							<div><strong>id:</strong> {getOfficerProp(selectedOfficerFull, '_id')}</div>
+							<div><strong>Phone:</strong> {getOfficerProp(selectedOfficerFull, 'phone')}</div>
+							<div><strong>Email:</strong> {getOfficerProp(selectedOfficerFull, 'email')}</div>
+						</div>
+					{/if}
+				</div>
+
+				<hr />
+
+				<!-- Edit Package -->
+				<div>
+					<h3 class="text-lg font-semibold mb-2">Edit Package</h3>
+					<div class="space-y-3">
+						<div>
+							<label class="block text-sm text-gray-600 mb-1">Description</label>
+							<textarea rows="3" bind:value={editForm.description} class="w-full px-3 py-2 border border-gray-300 rounded-lg"></textarea>
+						</div>
+						<div>
+							<label class="block text-sm text-gray-600 mb-1">Weight (kg)</label>
+							<input type="number" step="0.01" bind:value={editForm.weight} class="w-40 px-3 py-2 border border-gray-300 rounded-lg" />
+						</div>
+						<div class="flex gap-3 pt-4">
+							<button onclick={saveEditForm} class="px-4 py-2 bg-blue-600 text-white rounded-lg">Save changes</button>
+							<button onclick={closeOptionsModal} class="px-4 py-2 bg-gray-200 rounded-lg">Cancel</button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	/* Custom scrollbar for package list only */

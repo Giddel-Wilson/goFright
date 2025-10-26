@@ -10,17 +10,12 @@
 
 	let { children }: Props = $props();
 
-	let user = $state(authStore.user);
-	let isLoading = $state(authStore.isLoading);
-
-	authStore.subscribe((state) => {
-		user = state.user;
-		isLoading = state.isLoading;
-
-		if (!isLoading) {
-			if (!state.user) {
+	// Handle authentication and role-based access
+	$effect(() => {
+		if (!$authStore.isLoading) {
+			if (!$authStore.user) {
 				goto('/login');
-			} else if (state.user.role !== 'admin') {
+			} else if ($authStore.user.role !== 'admin') {
 				goto('/dashboard');
 			}
 		}
@@ -53,14 +48,14 @@
 	}
 </script>
 
-{#if isLoading}
+{#if $authStore.isLoading}
 	<div class="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
 		<div class="text-center">
 			<div class="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mx-auto"></div>
 			<p class="mt-4 text-gray-600 font-medium">Loading...</p>
 		</div>
 	</div>
-{:else if user}
+{:else if $authStore.user}
 	<div class="flex h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 overflow-hidden">
 		<!-- Sidebar -->
 		<aside class="w-[120px] bg-blue-600 flex flex-col items-center py-6 relative shadow-2xl" style="border-radius: 0 30px 30px 0;">
@@ -112,11 +107,11 @@
 					class="w-12 h-12 bg-white rounded-full flex items-center justify-center overflow-hidden shadow-lg hover:scale-110 transition-transform duration-200 block"
 					title="Profile"
 				>
-					{#if user?.photoUrl}
-						<img src={user.photoUrl} alt={user.name} class="w-full h-full object-cover" />
+					{#if $authStore.user?.photoUrl}
+						<img src={$authStore.user.photoUrl} alt={$authStore.user.name} class="w-full h-full object-cover" />
 					{:else}
 						<div class="w-full h-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-bold text-sm">
-							{getInitials(user?.name || 'Admin')}
+							{getInitials($authStore.user?.name || 'Admin')}
 						</div>
 					{/if}
 				</a>

@@ -22,14 +22,14 @@ export const GET: RequestHandler = async (event) => {
 			return json({ error: 'Unauthorized' }, { status: 403 });
 		}
 
-		await connectDB();
+	await connectDB();
 
-		const users = await User.find({})
-			.select('-password')
-			.sort({ createdAt: -1 })
-			.lean();
+	const users = await User.find({})
+		.select('-password_hash')
+		.sort({ createdAt: -1 })
+		.lean();
 
-		// Get shipment count for each user
+	// Get shipment count for each user
 		const usersWithStats = await Promise.all(
 			users.map(async (user) => {
 				const shipmentCount = await Cargo.countDocuments({ senderId: user._id });
@@ -90,13 +90,13 @@ export const PUT: RequestHandler = async (event) => {
 			}
 		}
 
-		const user = await User.findByIdAndUpdate(
-			userId,
-			{ $set: filteredUpdates },
-			{ new: true, runValidators: true }
-		).select('-password');
+	const user = await User.findByIdAndUpdate(
+		userId,
+		{ $set: filteredUpdates },
+		{ new: true, runValidators: true, strict: false }
+	).select('-password_hash');
 
-		if (!user) {
+	if (!user) {
 			return json({ error: 'User not found' }, { status: 404 });
 		}
 

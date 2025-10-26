@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import GoogleMap from '$lib/components/GoogleMap.svelte';
+	import LeafletMap from '$lib/components/LeafletMap.svelte';
 
 	let stats = $state({
 		totalDelivered: 0,
@@ -263,10 +263,10 @@
 					</div>
 				</div>
 
-				<!-- Google Maps -->
+				<!-- Live Shipment Map -->
 				{#if livePackages.length > 0}
 					<div class="mb-6 rounded-2xl overflow-hidden">
-						<GoogleMap packages={livePackages} height="300px" zoom={5} />
+						<LeafletMap packages={livePackages} height="300px" zoom={5} />
 					</div>
 				{:else}
 					<div class="bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl h-48 mb-6 flex items-center justify-center">

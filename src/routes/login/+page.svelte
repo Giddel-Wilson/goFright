@@ -25,23 +25,37 @@
 		error = '';
 		isLoading = true;
 
+		console.log('🔐 Starting login for:', email);
 		const result = await authStore.login(email, password);
+		console.log('📝 Login result:', result);
 
 		if (result.success) {
 			// Get user role from store to determine redirect
 			let userRole = '';
 			const unsubscribe = authStore.subscribe(state => {
+				console.log('📊 Auth store state:', state);
 				userRole = state.user?.role || '';
 			});
 			unsubscribe();
 
-			// Redirect admin to admin panel, others to dashboard
+			console.log('👤 User role:', userRole);
+
+			// Redirect based on role
 			if (userRole === 'admin') {
+				console.log('➡️ Redirecting to /admin');
 				await navigate('/admin');
+			} else if (userRole === 'freight_officer') {
+				console.log('➡️ Redirecting to /freight-officer');
+				await navigate('/freight-officer');
+			} else if (userRole === 'customer') {
+				console.log('➡️ Redirecting to /customer');
+				await navigate('/customer');
 			} else {
-				await navigate('/dashboard');
+				console.log('➡️ Redirecting to /dashboard (fallback)');
+				await navigate('/dashboard'); // Fallback
 			}
 		} else {
+			console.log('❌ Login failed:', result.error);
 			error = result.error || 'Login failed';
 		}
 

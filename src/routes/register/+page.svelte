@@ -14,7 +14,8 @@
 		password: '',
 		confirmPassword: '',
 		phone: '',
-		address: ''
+		address: '',
+		role: 'customer' // Default role
 	});
 	
 	let error = $state('');
@@ -34,24 +35,40 @@
 		error = '';
 		
 		// Validation
+		if (!formData.name || formData.name.trim().length < 2) {
+			error = 'Please enter your full name (minimum 2 characters)';
+			return;
+		}
+
+		if (!formData.email || !formData.email.includes('@')) {
+			error = 'Please enter a valid email address';
+			return;
+		}
+
+		if (!formData.password || formData.password.length < 8) {
+			error = 'Password must be at least 8 characters';
+			return;
+		}
+
 		if (formData.password !== formData.confirmPassword) {
 			error = 'Passwords do not match';
 			return;
 		}
 
-		if (formData.password.length < 8) {
-			error = 'Password must be at least 8 characters';
+		if (!formData.role) {
+			error = 'Please select an account type';
 			return;
 		}
 
 		isLoading = true;
 
 		const result = await authStore.register({
-			name: formData.name,
-			email: formData.email,
+			name: formData.name.trim(),
+			email: formData.email.trim().toLowerCase(),
 			password: formData.password,
-			phone: formData.phone || undefined,
-			address: formData.address || undefined
+			role: formData.role as 'admin' | 'freight_officer' | 'customer',
+			phone: formData.phone?.trim() || undefined,
+			address: formData.address?.trim() || undefined
 		});
 
 		if (result.success) {
@@ -146,6 +163,22 @@
 								disabled={isLoading}
 							/>
 						</div>
+					</div>
+
+					<div class="space-y-2">
+						<Label for="role">Account Type *</Label>
+						<select
+							id="role"
+							bind:value={formData.role}
+							required
+							disabled={isLoading}
+							class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							<option value="customer">Customer - Book and track shipments</option>
+							<option value="freight_officer">Freight Officer - Manage shipments and operations</option>
+							<option value="admin">Admin - Full system management</option>
+						</select>
+						<p class="text-xs text-gray-500">Select your account type</p>
 					</div>
 
 					<div class="grid grid-cols-1 md:grid-cols-2 gap-4">

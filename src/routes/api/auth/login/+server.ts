@@ -24,22 +24,28 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	try {
 		// Parse and validate request body
 		const body = await request.json();
+		console.log('🔐 Login attempt:', body.email);
+		
 		const validated = loginSchema.parse(body);
 
 		// Connect to database
 		await connectDB();
+		console.log('✅ Database connected');
 
 		// Find user by email
 		const user = await User.findOne({ email: validated.email });
 		if (!user) {
+			console.log('❌ User not found:', validated.email);
 			return json(
 				{ error: 'Invalid credentials' },
 				{ status: 401 }
 			);
 		}
+		console.log('✅ User found:', user._id);
 
 		// Check if account is active
 		if (!user.isActive) {
+			console.log('❌ Account deactivated:', validated.email);
 			return json(
 				{ error: 'Account is deactivated' },
 				{ status: 403 }
@@ -47,13 +53,16 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		}
 
 		// Verify password
+		console.log('🔍 Verifying password...');
 		const isPasswordValid = await user.comparePassword(validated.password);
 		if (!isPasswordValid) {
+			console.log('❌ Invalid password for:', validated.email);
 			return json(
 				{ error: 'Invalid credentials' },
 				{ status: 401 }
 			);
 		}
+		console.log('✅ Password valid');
 
 		// Generate JWT token
 		const token = generateToken({
@@ -72,6 +81,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			path: '/'
 		});
 
+		console.log('✅ Login successful:', user.email, 'Role:', user.role);
+
 		return json({
 			message: 'Login successful',
 			token,
@@ -83,7 +94,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			}
 		});
 	} catch (error) {
-		console.error('Login error:', error);
+		console.error('❌ Login error:', error);
 
 		if (error instanceof z.ZodError) {
 			return json(

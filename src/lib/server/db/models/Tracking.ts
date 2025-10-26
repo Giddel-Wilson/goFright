@@ -29,8 +29,7 @@ const TrackingSchema = new Schema<ITracking>(
 		cargoId: {
 			type: Schema.Types.ObjectId,
 			ref: 'Cargo',
-			required: true,
-			index: true
+			required: true
 		},
 		status: {
 			type: String,

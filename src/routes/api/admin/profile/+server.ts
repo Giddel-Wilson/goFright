@@ -9,6 +9,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { connectDB } from '$lib/server/db';
 import { User } from '$lib/server/db/models';
 import { requireAuth } from '$lib/server/auth';
+import { logActivity } from '$lib/server/utils/activityLogger';
 import bcrypt from 'bcryptjs';
 
 /**
@@ -61,7 +62,18 @@ export const PUT: RequestHandler = async (event) => {
 
 		await connectDB();
 
-		const allowedUpdates = ['name', 'email', 'phone', 'address'];
+		const allowedUpdates = [
+			'name', 
+			'email', 
+			'phone', 
+			'address',
+			'gender',
+			'dateOfBirth',
+			'nationality',
+			'stateOfOrigin',
+			'city',
+			'state'
+		];
 		const updates: Record<string, unknown> = {};
 
 		for (const key of allowedUpdates) {
@@ -79,6 +91,17 @@ export const PUT: RequestHandler = async (event) => {
 		if (!user) {
 			return json({ error: 'User not found' }, { status: 404 });
 		}
+
+		// Log activity
+		const updatedFields = Object.keys(updates).join(', ');
+		await logActivity({
+			userId: authUser.userId,
+			action: 'profile_update',
+			details: `Updated profile information: ${updatedFields}`,
+			category: 'profile',
+			metadata: { updatedFields: Object.keys(updates) },
+			event
+		});
 
 		return json({ message: 'Profile updated successfully', user });
 	} catch (error) {
