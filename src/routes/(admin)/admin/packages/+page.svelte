@@ -137,9 +137,7 @@
 			return;
 		}
 		try {
-			console.debug('[officer] loading details for id', id);
 			const res = await fetch(`/api/admin/users/${id}`, { credentials: 'include' });
-			console.debug('[officer] details response status', res.status);
 			if (!res.ok) {
 				// attempt fallback: try query by id on users list endpoint
 				try {
@@ -154,13 +152,12 @@
 						}
 					}
 				} catch (e) {
-					console.debug('[officer] fallback list fetch failed', e);
+					// fallback list fetch failed
 				}
 				selectedOfficerFull = null;
 				return;
 			}
 			const data = await res.json();
-			console.debug('[officer] details payload', data);
 			selectedOfficerFull = data.user || data;
 		} catch (err) {
 			console.warn('Failed to load officer details', err);
@@ -1080,10 +1077,10 @@
 					</div>
 					{#if displayedOfficer}
 						<div class="mt-2 text-sm text-gray-600">
-							<div><strong>Name:</strong> {getOfficerProp(selectedOfficerFull, 'name')}</div>
-							<div><strong>id:</strong> {getOfficerProp(selectedOfficerFull, '_id')}</div>
-							<div><strong>Phone:</strong> {getOfficerProp(selectedOfficerFull, 'phone')}</div>
-							<div><strong>Email:</strong> {getOfficerProp(selectedOfficerFull, 'email')}</div>
+							<div><strong>Name:</strong> {getOfficerProp(displayedOfficer, 'name')}</div>
+							<div><strong>id:</strong> {getOfficerProp(displayedOfficer, '_id')}</div>
+							<div><strong>Phone:</strong> {getOfficerProp(displayedOfficer, 'phone')}</div>
+							<div><strong>Email:</strong> {getOfficerProp(displayedOfficer, 'email')}</div>
 						</div>
 					{/if}
 				</div>
