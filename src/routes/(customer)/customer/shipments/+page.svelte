@@ -51,7 +51,7 @@
 		if (searchQuery.trim()) {
 			const query = searchQuery.toLowerCase();
 			filtered = filtered.filter(s =>
-				s.trackingNumber?.toLowerCase().includes(query) ||
+				s.trackingId?.toLowerCase().includes(query) ||
 				s.receiverName?.toLowerCase().includes(query) ||
 				s.receiverAddress?.toLowerCase().includes(query)
 			);
@@ -160,7 +160,7 @@
 				<div class="flex items-center justify-between mb-6">
 					<div>
 						<h2 class="text-2xl font-bold text-gray-900">Shipment Details</h2>
-						<p class="text-sm text-gray-600">{selectedShipment.trackingNumber}</p>
+						<p class="text-sm text-gray-600">{selectedShipment.trackingId}</p>
 					</div>
 					<button
 						onclick={() => showDetailsModal = false}
@@ -314,7 +314,7 @@
 						{#each filteredShipments as shipment}
 							<tr class="hover:bg-gray-50">
 								<td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-									{shipment.trackingNumber}
+									{shipment.trackingId}
 								</td>
 								<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
 									{shipment.receiverAddress}
@@ -339,7 +339,7 @@
 											Details
 										</button>
 										<a
-											href="/customer/track?number={shipment.trackingNumber}"
+											href="/customer/track?number={shipment.trackingId}"
 											class="text-blue-600 hover:text-blue-700 font-medium"
 										>
 											Track

@@ -240,6 +240,7 @@
 							<th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Tracking Number</th>
 							<th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Customer</th>
 							<th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Destination</th>
+							<th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Price</th>
 							<th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
 							<th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Date</th>
 							<th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
@@ -258,6 +259,7 @@
 									</div>
 								</td>
 								<td class="px-6 py-4 text-gray-900">{shipment.destination}</td>
+								<td class="px-6 py-4 text-gray-900 font-medium">GH₵{shipment.price || 0}</td>
 								<td class="px-6 py-4">
 									<span class="px-3 py-1 {getStatusColor(shipment.status)} rounded-full text-xs font-medium">
 										{shipment.status}

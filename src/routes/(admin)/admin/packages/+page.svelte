@@ -599,7 +599,7 @@
 						</div>
 
 						<!-- Info Grid -->
-						<div class="grid grid-cols-3 gap-3 pt-4 border-t border-white/20 mb-4">
+						<div class="grid grid-cols-4 gap-3 pt-4 border-t border-white/20 mb-4">
 							<div>
 								<p class="text-xs text-blue-200 mb-0.5">Customer</p>
 								<p class="font-medium text-xs truncate">{pkg.customerName || 'N/A'}</p>
@@ -610,7 +610,11 @@
 							</div>
 							<div>
 								<p class="text-xs text-blue-200 mb-0.5">Value</p>
-								<p class="font-medium text-xs">${pkg.declaredValue || 'N/A'}</p>
+								<p class="font-medium text-xs">GH₵{pkg.declaredValue || 'N/A'}</p>
+							</div>
+							<div>
+								<p class="text-xs text-blue-200 mb-0.5">Price</p>
+								<p class="font-medium text-xs">GH₵{pkg.price || 'N/A'}</p>
 							</div>
 						</div>
 

@@ -48,36 +48,37 @@ export const POST: RequestHandler = async (event) => {
 
 		await connectDB();
 
-		// Generate tracking number
-		const year = new Date().getFullYear();
-		const count = await Cargo.countDocuments();
-		const trackingNumber = `TRK-${year}-${String(count + 1).padStart(6, '0')}`;
+		// Calculate price based on weight
+		// Base price: GH₵50, Additional: GH₵10 per kg
+		const basePrice = 50;
+		const pricePerKg = 10;
+		const weight = parseFloat(body.weight) || 0;
+		const calculatedPrice = basePrice + (weight * pricePerKg);
 
-		// Create booking
+		// Create booking (trackingId will be auto-generated)
 		const booking = await Cargo.create({
-			trackingNumber,
-			senderId: authUser.userId, // Fixed: use senderId instead of customerId
+			senderId: authUser.userId,
 			senderName: body.senderName,
 			senderPhone: body.senderPhone,
 			senderAddress: body.senderAddress,
-			origin: body.senderCity || body.senderAddress, // Fixed: add origin
+			origin: body.senderCity || body.senderAddress,
 			receiverName: body.receiverName,
 			receiverPhone: body.receiverPhone,
 			receiverAddress: body.receiverAddress,
-			destination: body.receiverCity || body.receiverAddress, // Fixed: add destination
+			destination: body.receiverCity || body.receiverAddress,
 			cargoType: body.cargoType || 'general',
-			weight: body.weight,
-			// Removed dimensions - only weight is needed
+			weight: weight,
+			declaredValue: parseFloat(body.declaredValue) || calculatedPrice,
+			price: calculatedPrice,
 			description: body.specialInstructions,
 			specialInstructions: body.specialInstructions,
-			status: 'booked', // Fixed: use valid enum value 'booked' instead of 'pending'
-			// Calculate price based on weight
+			status: 'booked',
 			estimatedDelivery: body.pickupDate ? new Date(body.pickupDate) : undefined
 		});
 
 		return json({
 			message: 'Booking created successfully',
-			trackingNumber: booking.trackingNumber,
+			trackingNumber: booking.trackingId, // Return trackingId as trackingNumber for compatibility
 			booking
 		});
 	} catch (error) {

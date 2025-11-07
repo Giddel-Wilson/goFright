@@ -60,6 +60,9 @@ export interface ICargo extends Document {
 	specialInstructions?: string;
 	estimatedDelivery?: Date;
 	actualDelivery?: Date;
+	declaredValue?: number; // Declared value in NGN
+	price?: number; // Calculated shipping price in NGN
+	paymentStatus?: 'pending' | 'paid' | 'refunded';
 	assignedOfficerId?: mongoose.Types.ObjectId;
 	assignedOfficers?: mongoose.Types.ObjectId[]; // Multiple freight officers can be assigned
 	assignedRouteId?: mongoose.Types.ObjectId; // Route assigned by admin
@@ -160,6 +163,16 @@ const CargoSchema = new Schema<ICargo>(
 		},
 		actualDelivery: {
 			type: Date
+		},
+		declaredValue: {
+			type: Number,
+			min: 0,
+			default: 0
+		},
+		price: {
+			type: Number,
+			min: 0,
+			default: 0
 		},
 		assignedOfficerId: {
 			type: Schema.Types.ObjectId,
