@@ -22,7 +22,7 @@ export const GET: RequestHandler = async (event) => {
 
 		await connectDB();
 
-		const bookings = await Cargo.find({ customerId: authUser.userId })
+		const bookings = await Cargo.find({ senderId: authUser.userId })
 			.sort({ createdAt: -1 })
 			.lean();
 
